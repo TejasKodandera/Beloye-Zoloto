@@ -1,0 +1,15 @@
+*
+!.gitignore
+
+#Don't ignore the files in these folders
+!DHT11/
+!DHT11/Core/
+!DHT11/Core/Src/
+
+#Ignore the files in these folders
+DHT11/Core/Src/*
+
+#Don't ignore these files
+!DHT11/DHT11.ioc
+!DHT11/Core/Src/main.c
+
