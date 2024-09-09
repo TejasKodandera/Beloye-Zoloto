@@ -1,36 +1,40 @@
 *
 !.gitignore
 
-#Don't ignore the files in these folders
 !DHT11/
 !DHT11/Core/
 !DHT11/Core/Src/
+!DHT11/Core/Src/main.c
+!DHT11/DHT11.ioc
 
 !Soil_Moisture_Sensor/
 !Soil_Moisture_Sensor/Core/
 !Soil_Moisture_Sensor/Core/Src/
+!Soil_Moisture_Sensor/Core/Src/main.c
+!Soil_Moisture_Sensor/Soil_Moisture_Sensor.ioc
+
+!Rain_Sensor/
+!Rain_Sensor/Core/
+!Rain_Sensor/Core/Src/
+!Rain_Sensor/Core/Src/main.c
+!Rain_Sensor/Rain_Sensor.ioc
+
+!Light_Sensor/
+!Light_Sensor/Core/
+!Light_Sensor/Core/Src/
+!Light_Sensor/Core/Src/main.c
+!Light_Sensor/Light_Sensor.ioc
 
 !USBD/
 !USBD/Core/
 !USBD/Core/Src/
+!USBD/Core/Src/main.c
 !USBD/USB_DEVICE/
 !USBD/USB_DEVICE/App/
-
-#Ignore the files in these folders
-DHT11/Core/Src/*
-
-Soil_Moisture_Sensor/Core/Src/*
-
-USBD/Core/Src/*
-USBD/USB_DEVICE/App/*
-
-#Don't ignore these files
-!DHT11/DHT11.ioc
-!DHT11/Core/Src/main.c
-
-!Soil_Moisture_Sensor/Soil_Moisture_Sensor.ioc
-!Soil_Moisture_Sensor/Core/Src/main.c
-
-!USBD/USBD.ioc
-!USBD/Core/Src/main.c
 !USBD/USB_DEVICE/App/usbd_cdc_if.c
+!USBD/USBD.ioc
+
+
+
+
+
