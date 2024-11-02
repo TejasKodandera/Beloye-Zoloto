@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
+#include "string.h"
 
 /* USER CODE END Includes */
 
@@ -32,12 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define OUTPUT 0		/*!< OUTPUT: Output push pull at low frequency (2 MHz) */
-#define INPUT 1			/*!< INPUT: Input with no pull resistor activation */
-#define INPUT_PULLUP 2	/*!< INPUT_PULLUP: Input with pull up resistor activation */
-
-#define DHT11_PORT GPIOA
-#define DHT11_PIN GPIO_PIN_1
+#define BUFFER_LENGTH 64
 
 /* USER CODE END PD */
 
@@ -47,7 +43,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim1;
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
@@ -56,7 +52,7 @@ TIM_HandleTypeDef htim1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_TIM1_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -69,72 +65,6 @@ int _write(int file, char *ptr, int len) {
 		ITM_SendChar(*ptr++);
 	}
 	return len;
-}
-
-void delayMicroseconds(uint16_t Delay) {
-	__HAL_TIM_SET_COUNTER(&htim1, 0);
-	while (__HAL_TIM_GET_COUNTER(&htim1) < Delay)
-		;
-}
-
-void pinMode(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, uint8_t Mode) {
-	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	GPIO_InitStruct.Pin = GPIO_Pin;
-
-	if (Mode == OUTPUT) {
-		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	} else if (Mode == INPUT) {
-		GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-		GPIO_InitStruct.Pull = GPIO_NOPULL;
-	} else if (Mode == INPUT_PULLUP) {
-		GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-		GPIO_InitStruct.Pull = GPIO_PULLUP;
-	}
-
-	HAL_GPIO_Init(GPIOx, &GPIO_InitStruct);
-}
-
-void DHT11_Init() {
-	pinMode(DHT11_PORT, DHT11_PIN, OUTPUT);
-	HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, GPIO_PIN_RESET);
-	HAL_Delay(18);
-	HAL_GPIO_WritePin(DHT11_PORT, DHT11_PIN, GPIO_PIN_SET);
-	delayMicroseconds(20);
-	pinMode(DHT11_PORT, DHT11_PIN, INPUT_PULLUP);
-}
-
-uint8_t DHT11_Handshake() {
-	uint8_t Response = 0;
-	delayMicroseconds(40);
-	if ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_RESET) {
-		delayMicroseconds(80);
-		if ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_SET)
-			Response = 1;
-		else
-			Response = 255;
-	}
-	delayMicroseconds(40);
-//	while ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_SET)
-//		;  // wait for the pin to go low
-	return Response;
-}
-
-uint8_t DHT11_Read() {
-	uint8_t i = 0;
-	for (uint8_t j = 0; j < 8; j++) {
-		while ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_RESET)
-			;   // wait for the pin to go high`
-		delayMicroseconds(40);   // wait for 40 us
-		if ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_RESET)   // if the pin is low
-		{
-			i &= ~(1 << (7 - j));   // write 0
-		} else
-			i |= (1 << (7 - j));  // if the pin is high, write 1
-		while ((HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) == GPIO_PIN_SET)
-			;  // wait for the pin to go low
-	}
-	return i;
 }
 
 /* USER CODE END 0 */
@@ -167,28 +97,123 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_TIM1_Init();
+	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
-	HAL_TIM_Base_Start(&htim1);
+	char ATcommand[256];
+	char message[256];
+
+	uint8_t ATisOK = 0;
+	uint8_t rxBuffer[2048] = { 0 };
+
+	sprintf(ATcommand, "AT+RST\r\n");
+	memset(rxBuffer, 0, sizeof(rxBuffer));
+	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
+	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+	printf("ESP01 reset\n\r");
+	HAL_Delay(500);
+
+	printf("Enabling STA...\r");
+	ATisOK = 0;
+	while (!ATisOK) {
+		sprintf(ATcommand, "AT+CWMODE_CUR=1\r\n");
+		memset(rxBuffer, 0, sizeof(rxBuffer));
+		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
+				1000);
+		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+		if (strstr((char*) rxBuffer, "OK")) {
+			ATisOK = 1;
+			printf("Enabled\n\r");
+		}
+		HAL_Delay(500);
+	}
+
+	printf("Connecting to WiFi...\r");
+	ATisOK = 0;
+	while (!ATisOK) {
+		sprintf(ATcommand, "AT+CWJAP_CUR=\"moto x4 6475\",\"IRONMANROX\"\r\n");
+		memset(rxBuffer, 0, sizeof(rxBuffer));
+		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
+				1000);
+		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 20000);
+		if (strstr((char*) rxBuffer, "OK")) {
+			ATisOK = 1;
+			printf("Connected\n\r");
+		}
+		HAL_Delay(500);
+	}
+
+	printf("Enabling single connection mode...\r");
+	ATisOK = 0;
+	while (!ATisOK) {
+		sprintf(ATcommand, "AT+CIPMUX=0\r\n");
+		memset(rxBuffer, 0, sizeof(rxBuffer));
+		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
+				1000);
+		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+		if (strstr((char*) rxBuffer, "OK")) {
+			ATisOK = 1;
+			printf("Enabled\n\r");
+		}
+		HAL_Delay(500);
+	}
+
+	printf("Connecting to TimeZoneDB...\r");
+	sprintf(ATcommand, "AT+CIPSTART=\"TCP\",\"api.timezonedb.com\",80\r\n");
+	memset(rxBuffer, 0, sizeof(rxBuffer));
+	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
+	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+	printf("Connected\n\r");
+	HAL_Delay(500);
+
+	printf("Fetching data...\r");
+	sprintf(message,
+	    "GET /v2.1/get-time-zone?key=6XFWMPL1F4R2&format=json&by=zone&zone=Asia/Kolkata HTTP/1.1\r\n"
+	    "Host: api.timezonedb.com\r\n"
+	    "Connection: close\r\n\r\n");
+	sprintf(ATcommand, "AT+CIPSEND=%d\r\n", strlen(message));
+	memset(rxBuffer, 0, sizeof(rxBuffer));
+	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
+	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+	if (strstr((char*) rxBuffer, ">")) {
+		memset(rxBuffer, 0, sizeof(rxBuffer));
+		HAL_UART_Transmit(&huart1, (uint8_t*) message, strlen(message), 1000);
+		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+		printf("%s\n\r", rxBuffer);
+	}
+	HAL_Delay(500);
+
+	printf("Connecting to Open-Meteo...\r");
+	sprintf(ATcommand, "AT+CIPSTART=\"TCP\",\"api.open-meteo.com\",80\r\n");
+	memset(rxBuffer, 0, sizeof(rxBuffer));
+	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
+	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+	printf("Connected\n\r");
+	HAL_Delay(500);
+
+	printf("Fetching data...\r");
+	sprintf(message,
+		    "GET /v1/forecast?latitude=13.35&longitude=74.7833&hourly=temperature_2m&forecast_days=2 HTTP/1.1\r\n"
+		    "Host: api.open-meteo.com\r\n"
+		    "Connection: close\r\n\r\n");
+	sprintf(ATcommand, "AT+CIPSEND=%d\r\n", strlen(message));
+	memset(rxBuffer, 0, sizeof(rxBuffer));
+	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
+	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+	if (strstr((char*) rxBuffer, ">")) {
+		memset(rxBuffer, 0, sizeof(rxBuffer));
+		HAL_UART_Transmit(&huart1, (uint8_t*) message, strlen(message), 1000);
+		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
+		printf("%s\n\r", rxBuffer);
+	}
+	HAL_Delay(500);
+
+	printf("armdude done. Thank you.\n");
 
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 	while (1) {
-		DHT11_Init();
-		uint8_t response = DHT11_Handshake();
-		printf("Response: %d\n", response);
-
-		uint8_t Rh_byte1 = DHT11_Read ();
-		uint8_t Rh_byte2 = DHT11_Read ();
-		uint8_t Temp_byte1 = DHT11_Read ();
-		uint8_t Temp_byte2 = DHT11_Read ();
-		uint8_t Checksum = DHT11_Read();
-		printf("RH: %d Temp: %d\n", Rh_byte1, Temp_byte1);
-
-		HAL_Delay(500);
-
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
@@ -212,13 +237,12 @@ void SystemClock_Config(void) {
 	/** Initializes the RCC Oscillators according to the specified parameters
 	 * in the RCC_OscInitTypeDef structure.
 	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-	RCC_OscInitStruct.PLL.PLLM = 8;
-	RCC_OscInitStruct.PLL.PLLN = 96;
+	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+	RCC_OscInitStruct.PLL.PLLM = 25;
+	RCC_OscInitStruct.PLL.PLLN = 192;
 	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
 	RCC_OscInitStruct.PLL.PLLQ = 4;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
@@ -240,45 +264,33 @@ void SystemClock_Config(void) {
 }
 
 /**
- * @brief TIM1 Initialization Function
+ * @brief USART1 Initialization Function
  * @param None
  * @retval None
  */
-static void MX_TIM1_Init(void) {
+static void MX_USART1_UART_Init(void) {
 
-	/* USER CODE BEGIN TIM1_Init 0 */
+	/* USER CODE BEGIN USART1_Init 0 */
 
-	/* USER CODE END TIM1_Init 0 */
+	/* USER CODE END USART1_Init 0 */
 
-	TIM_ClockConfigTypeDef sClockSourceConfig = { 0 };
-	TIM_MasterConfigTypeDef sMasterConfig = { 0 };
+	/* USER CODE BEGIN USART1_Init 1 */
 
-	/* USER CODE BEGIN TIM1_Init 1 */
-
-	/* USER CODE END TIM1_Init 1 */
-	htim1.Instance = TIM1;
-	htim1.Init.Prescaler = 95;
-	htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim1.Init.Period = 65535;
-	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	htim1.Init.RepetitionCounter = 0;
-	htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-	if (HAL_TIM_Base_Init(&htim1) != HAL_OK) {
+	/* USER CODE END USART1_Init 1 */
+	huart1.Instance = USART1;
+	huart1.Init.BaudRate = 115200;
+	huart1.Init.WordLength = UART_WORDLENGTH_8B;
+	huart1.Init.StopBits = UART_STOPBITS_1;
+	huart1.Init.Parity = UART_PARITY_NONE;
+	huart1.Init.Mode = UART_MODE_TX_RX;
+	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+	if (HAL_UART_Init(&huart1) != HAL_OK) {
 		Error_Handler();
 	}
-	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-	if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK) {
-		Error_Handler();
-	}
-	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-	if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig)
-			!= HAL_OK) {
-		Error_Handler();
-	}
-	/* USER CODE BEGIN TIM1_Init 2 */
+	/* USER CODE BEGIN USART1_Init 2 */
 
-	/* USER CODE END TIM1_Init 2 */
+	/* USER CODE END USART1_Init 2 */
 
 }
 
@@ -298,14 +310,14 @@ static void MX_GPIO_Init(void) {
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
-	/*Configure GPIO pin : LED_Pin */
-	GPIO_InitStruct.Pin = LED_Pin;
+	/*Configure GPIO pin : PC13 */
+	GPIO_InitStruct.Pin = GPIO_PIN_13;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
 	/* USER CODE BEGIN MX_GPIO_Init_2 */
 	/* USER CODE END MX_GPIO_Init_2 */
