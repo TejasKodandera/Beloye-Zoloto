@@ -1,6 +1,12 @@
 *
 !.gitignore
 
+!AAF/
+!AAF/Core/
+!AAF/Core/Src/
+!AAF/Core/Src/main.c
+!AAF/AAF.ioc
+
 !DHT11/
 !DHT11/Core/
 !DHT11/Core/Src/
@@ -37,6 +43,12 @@
 !Light_Sensor/Core/Src/main.c
 !Light_Sensor/Light_Sensor.ioc
 
+!OLED/
+!OLED/Core/
+!OLED/Core/Src/
+!OLED/Core/Src/main.c
+!OLED/OLED.ioc
+
 !Open-Meteo/
 !Open-Meteo/Core/
 !Open-Meteo/Core/Src/
@@ -49,6 +61,12 @@
 !Rain_Sensor/Core/Src/main.c
 !Rain_Sensor/Rain_Sensor.ioc
 
+!Smart_Irrigation/
+!Smart_Irrigation/Core/
+!Smart_Irrigation/Core/Src/
+!Smart_Irrigation/Core/Src/main.c
+!Smart_Irrigation/Smart_Irrigation.ioc
+
 !Soil_Moisture_Sensor/
 !Soil_Moisture_Sensor/Core/
 !Soil_Moisture_Sensor/Core/Src/
@@ -60,6 +78,12 @@
 !Time_API/Core/Src/
 !Time_API/Core/Src/main.c
 !Time_API/Time_API.ioc
+
+!UI/
+!UI/Core/
+!UI/Core/Src/
+!UI/Core/Src/main.c
+!UI/UI.ioc
 
 !USBD/
 !USBD/Core/

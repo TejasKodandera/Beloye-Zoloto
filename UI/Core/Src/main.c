@@ -21,6 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ssd1306_fonts.h"
+#include "ssd1306.h"
+#include "stdbool.h"
 #include "stdio.h"
 #include "string.h"
 
@@ -42,28 +45,77 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
+I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
+int8_t xIncrement = 0;
+int8_t yIncrement = 0;
+
+int8_t xIndex = 0;
+int8_t yIndex = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART1_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int _write(int file, char *ptr, int len) {
-	int DataIdx;
-	for (DataIdx = 0; DataIdx < len; DataIdx++) {
-		ITM_SendChar(*ptr++);
+// A utility function to reverse a string
+void reverse(char str[], int length) {
+	int start = 0;
+	int end = length - 1;
+	while (start < end) {
+		char temp = str[start];
+		str[start] = str[end];
+		str[end] = temp;
+		end--;
+		start++;
 	}
-	return len;
+}
+// Implementation of citoa()
+char* citoa(int num, char *str, int base) {
+	int i = 0;
+	bool isNegative = false;
+
+	/* Handle 0 explicitly, otherwise empty string is
+	 * printed for 0 */
+	if (num == 0) {
+		str[i++] = '0';
+		str[i] = '\0';
+		return str;
+	}
+
+	// In standard itoa(), negative numbers are handled
+	// only with base 10. Otherwise numbers are
+	// considered unsigned.
+	if (num < 0 && base == 10) {
+		isNegative = true;
+		num = -num;
+	}
+
+	// Process individual digits
+	while (num != 0) {
+		int rem = num % base;
+		str[i++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
+		num = num / base;
+	}
+
+	// If number is negative, append '-'
+	if (isNegative)
+		str[i++] = '-';
+
+	str[i] = '\0'; // Append string terminator
+
+	// Reverse the string
+	reverse(str, i);
+
+	return str;
 }
 
 /* USER CODE END 0 */
@@ -96,136 +148,114 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_USART1_UART_Init();
+	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
-	char ATcommand[256];
-	char message[256];
-
-	uint8_t ATisOK = 0;
-	uint8_t rxBuffer[8192] = { 0 };
-
-	sprintf(ATcommand, "AT+RST\r\n");
-	memset(rxBuffer, 0, sizeof(rxBuffer));
-	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
-	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-	printf("ESP01 reset\n\r");
-	HAL_Delay(500);
-
-//	printf("Enabling STA...\r");
-	ATisOK = 0;
-	while (!ATisOK) {
-		sprintf(ATcommand, "AT+CWMODE_CUR=1\r\n");
-		memset(rxBuffer, 0, sizeof(rxBuffer));
-		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
-				1000);
-		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-		if (strstr((char*) rxBuffer, "OK")) {
-			ATisOK = 1;
-//			printf("Enabled\n\r");
-		}
-		HAL_Delay(500);
-	}
-
-//	printf("Connecting to WiFi...\r");
-	ATisOK = 0;
-	while (!ATisOK) {
-		sprintf(ATcommand, "AT+CWJAP_CUR=\"moto x4 6475\",\"IRONMANROX\"\r\n");
-		memset(rxBuffer, 0, sizeof(rxBuffer));
-		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
-				1000);
-		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 20000);
-		if (strstr((char*) rxBuffer, "OK")) {
-			ATisOK = 1;
-//			printf("Connected\n\r");
-		}
-		HAL_Delay(500);
-	}
-
-//	printf("Enabling single connection mode...\r");
-	ATisOK = 0;
-	while (!ATisOK) {
-		sprintf(ATcommand, "AT+CIPMUX=0\r\n");
-		memset(rxBuffer, 0, sizeof(rxBuffer));
-		HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand),
-				1000);
-		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-		if (strstr((char*) rxBuffer, "OK")) {
-			ATisOK = 1;
-//			printf("Enabled\n\r");
-		}
-		HAL_Delay(500);
-	}
-
-//	printf("Connecting to Open-Meteo...\r");
-	sprintf(ATcommand, "AT+CIPSTART=\"TCP\",\"api.open-meteo.com\",80\r\n");
-	memset(rxBuffer, 0, sizeof(rxBuffer));
-	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
-	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-//	printf("Connected\n\r");
-	HAL_Delay(500);
-
-	printf("Fetching data...\r");
-	sprintf(message,
-			"GET /v1/forecast?latitude=19.9973&longitude=73.791&hourly=cloud_cover,soil_moisture_0_to_1cm&forecast_days=2 HTTP/1.1\r\n"
-					"Host: api.open-meteo.com\r\n"
-					"Connection: close\r\n\r\n");
-	sprintf(ATcommand, "AT+CIPSEND=%d\r\n", strlen(message));
-	memset(rxBuffer, 0, sizeof(rxBuffer));
-	HAL_UART_Transmit(&huart1, (uint8_t*) ATcommand, strlen(ATcommand), 1000);
-	HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-	if (strstr((char*) rxBuffer, ">")) {
-		memset(rxBuffer, 0, sizeof(rxBuffer));
-		HAL_UART_Transmit(&huart1, (uint8_t*) message, strlen(message), 1000);
-		HAL_UART_Receive(&huart1, rxBuffer, sizeof(rxBuffer), 1000);
-		printf("%s\n\r", rxBuffer);
-	}
-
-	char parsedTime[6] = "";
-	for (uint8_t i = 0; i < 5; i++) {
-		parsedTime[i] = rxBuffer[i + 81];
-	}
-	parsedTime[5] = '\0';
-
-	uint8_t parsedHrs = (parsedTime[0] - '0') * 10 + (parsedTime[1] - '0');
-	uint8_t parsedMins = (parsedTime[3] - '0') * 10 + (parsedTime[4] - '0');
-	printf("Parsed time: %d:%d\n", parsedHrs, parsedMins);
-
-	char parsedString[56] = "";
-	uint8_t commaCount = 0;
-	uint8_t i = 0;
-	uint8_t startIndex = 0;
-	float parsedTemps[8];
-	while (commaCount < parsedHrs + 1) {
-		if (rxBuffer[startIndex + 1546] == ',') {
-			commaCount++;
-		}
-		startIndex++;
-	}
-
-	commaCount = 0;
-	while (commaCount < 8) {
-		parsedString[i] = rxBuffer[i + startIndex + 1546];
-		if (rxBuffer[i + startIndex + 1546] == ',') {
-			parsedTemps[commaCount] = parsedString[i - 1] * 0.001 +
-						+ parsedString[i - 2] * 0.01 + parsedString[i - 3] * 0.1 - 5.328;
-			commaCount++;
-		}
-		i++;
-	}
-	parsedString[i - 1] = '\0'; // Null-terminate parsedString
-	printf("%s\n", parsedString);
+	char message[32];
+	char row0[10][8][32] = { { "Real-Time Data", "Forecast", "Debug",
+			"Manual Control", "\0" }, { "Soil Moisture", "Temperature",
+			"Humidity", "Rain", "Light", "\0" }, { "Temperature", "Humidity",
+			"Precipitation", "Cloud Cover", "Soil Moisture", "\0" }, {
+			"Sync Time", "Core Temp", "Core Voltage", "\0" } };
 
 	for (uint8_t i = 0; i < 8; i++) {
-		printf("%d: %0.3f\n", (parsedHrs + i + 1) * 100, parsedTemps[i]);
+		strcpy(row0[5][i], "Temperature");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row0[6][i], "Humidity");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row0[7][i], "Precipitation");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row0[8][i], "Cloud Cover");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row0[9][i], "Soil Moisture");
 	}
 
-	printf("armdude done. Thank you.\n");
-	HAL_Delay(500);
+	char row1[10][8][32] = { { "\0" }, { "%d", "%dC", "%d%%", "%d", "%d", "\0" },
+			{ "\0" }, { "\0", "%dC", "%dV", "\0" } };
+
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row1[5][i], "%dC");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row1[6][i], "%d%%");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row1[7][i], "%dmm(%d%%)");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row1[8][i], "%d%%");
+	}
+	for (uint8_t i = 0; i < 8; i++) {
+		strcpy(row1[9][i], "%d");
+	}
+
+	char row2[8][8] = { "0000", "0100", "0200", "0300", "0400", "0500", "0600",
+			"0700" };
+
+	ssd1306_Init();
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 	while (1) {
+		if (xIncrement != 0) {
+			xIndex += xIncrement;
+			xIncrement = 0;
+
+			if (row0[yIndex][xIndex][0] == '\0') {
+				xIndex--;
+			}
+
+			if (yIndex > 3 && xIndex > 7) {
+				xIndex--;
+			}
+
+			if (xIndex < 0) {
+				xIndex = 0;
+			}
+
+			HAL_Delay(50);
+		}
+
+		if (yIncrement != 0) {
+			yIndex += yIncrement;
+
+			if (row0[yIndex][xIndex][0] == '\0') {
+				yIndex -= yIncrement;
+			} else {
+				xIndex = 0;
+			}
+
+			yIncrement = 0;
+
+			if (yIndex < 0) {
+				yIndex = 0;
+			}
+
+			HAL_Delay(50);
+		}
+
+		ssd1306_Fill(Black);
+		ssd1306_SetCursor(0, 0);
+		sprintf(message, "%s", row0[yIndex][xIndex]);
+		ssd1306_WriteString(message, Font_7x10, White);
+
+		ssd1306_SetCursor(0, 20);
+		sprintf(message, row1[yIndex][xIndex], 0, 0);
+		ssd1306_WriteString(message, Font_11x18, White);
+
+		if (yIndex > 4) {
+			ssd1306_SetCursor(0, 50);
+			sprintf(message, "%s", row2[xIndex]);
+			ssd1306_WriteString(message, Font_7x10, White);
+		}
+
+		ssd1306_UpdateScreen();
+
+		HAL_Delay(500);
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
@@ -249,12 +279,13 @@ void SystemClock_Config(void) {
 	/** Initializes the RCC Oscillators according to the specified parameters
 	 * in the RCC_OscInitTypeDef structure.
 	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-	RCC_OscInitStruct.PLL.PLLM = 25;
-	RCC_OscInitStruct.PLL.PLLN = 192;
+	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+	RCC_OscInitStruct.PLL.PLLM = 8;
+	RCC_OscInitStruct.PLL.PLLN = 96;
 	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
 	RCC_OscInitStruct.PLL.PLLQ = 4;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
@@ -276,33 +307,34 @@ void SystemClock_Config(void) {
 }
 
 /**
- * @brief USART1 Initialization Function
+ * @brief I2C1 Initialization Function
  * @param None
  * @retval None
  */
-static void MX_USART1_UART_Init(void) {
+static void MX_I2C1_Init(void) {
 
-	/* USER CODE BEGIN USART1_Init 0 */
+	/* USER CODE BEGIN I2C1_Init 0 */
 
-	/* USER CODE END USART1_Init 0 */
+	/* USER CODE END I2C1_Init 0 */
 
-	/* USER CODE BEGIN USART1_Init 1 */
+	/* USER CODE BEGIN I2C1_Init 1 */
 
-	/* USER CODE END USART1_Init 1 */
-	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 115200;
-	huart1.Init.WordLength = UART_WORDLENGTH_8B;
-	huart1.Init.StopBits = UART_STOPBITS_1;
-	huart1.Init.Parity = UART_PARITY_NONE;
-	huart1.Init.Mode = UART_MODE_TX_RX;
-	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-	if (HAL_UART_Init(&huart1) != HAL_OK) {
+	/* USER CODE END I2C1_Init 1 */
+	hi2c1.Instance = I2C1;
+	hi2c1.Init.ClockSpeed = 400000;
+	hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+	hi2c1.Init.OwnAddress1 = 0;
+	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+	hi2c1.Init.OwnAddress2 = 0;
+	hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+	hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+	if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
 		Error_Handler();
 	}
-	/* USER CODE BEGIN USART1_Init 2 */
+	/* USER CODE BEGIN I2C1_Init 2 */
 
-	/* USER CODE END USART1_Init 2 */
+	/* USER CODE END I2C1_Init 2 */
 
 }
 
@@ -320,6 +352,7 @@ static void MX_GPIO_Init(void) {
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 	__HAL_RCC_GPIOH_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
 
 	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -331,11 +364,38 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+	/*Configure GPIO pins : PA8 PA9 PA10 */
+	GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10;
+	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+	/* EXTI interrupt init*/
+	HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
 	/* USER CODE BEGIN MX_GPIO_Init_2 */
 	/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == GPIO_PIN_8) {
+		xIncrement = -1;
+	} else if (GPIO_Pin == GPIO_PIN_9) {
+		if (yIndex == 0) {
+			yIncrement = xIndex + 1;
+		} else if (yIndex == 2) {
+			yIncrement = xIndex + 2;
+		}
+
+	} else if (GPIO_Pin == GPIO_PIN_10) {
+		xIncrement = 1;
+	}
+}
 
 /* USER CODE END 4 */
 

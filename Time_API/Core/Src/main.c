@@ -182,6 +182,12 @@ int main(void) {
 	}
 	HAL_Delay(500);
 
+	char parsedTime[19];
+	for(uint16_t i = 0; i < 19; i++){
+		parsedTime[i] = rxBuffer[i + 921];
+	}
+
+	printf("Parsed Time: %s IST\n", parsedTime);
 	printf("armdude done. Thank you.\n");
 
 	/* USER CODE END 2 */
